@@ -290,6 +290,7 @@ static void print_format_help_help(RCore *core) {
 	" ", "S", "64bit pointer to string (8 bytes)",
 	" ", "t", "UNIX timestamp (4 bytes)",
 	" ", "T", "show Ten first bytes of buffer",
+	" ", "u", "uleb128 (variable length)",
 	" ", "w", "word (2 bytes unsigned short in hex)",
 	" ", "x", "0x%%08x hex value and flag (fd @ addr)",
 	" ", "X", "show formatted hexpairs",
@@ -340,6 +341,10 @@ static void cmd_print_format (RCore *core, const char *_input, int len) {
 	case 'j':
 		_input++;
 		mode = R_PRINT_JSON;
+		break;
+	case 'v':
+		_input++;
+		mode = R_PRINT_VALUE | R_PRINT_MUSTSEE;
 		break;
 	case 's':
 		{
@@ -456,6 +461,14 @@ static void cmd_print_format (RCore *core, const char *_input, int len) {
 	if (!strcmp (input, "*") && mode == R_PRINT_SEEFLAGS)
 		listFormats = 1;
 
+	core->print->reg = core->dbg->reg;
+	core->print->get_register = r_reg_get;
+	core->print->get_register_value = r_reg_get_value;
+
+	/* This make sure the structure will be printed entirely */
+	int b_len = r_print_format_struct_size (input+2, core->print, 0)+10;
+	b_len = b_len>core->blocksize?b_len:core->blocksize;
+
 	if (listFormats) {
 		core->print->num = core->num;
 		/* print all stored format */
@@ -501,7 +514,7 @@ static void cmd_print_format (RCore *core, const char *_input, int len) {
 			if (dot) {
 				*dot++ = 0;
 				eq = strchr (dot, '=');
-				if (eq) {
+				if (eq) { // Write mode (pf.field=value)
 					*eq++ = 0;
 					mode = R_PRINT_MUSTSET;
 					r_print_format (core->print, core->offset,
@@ -512,12 +525,12 @@ static void cmd_print_format (RCore *core, const char *_input, int len) {
 				}
 			} else {
 				r_print_format (core->print, core->offset,
-						core->block, len, name, mode, NULL, NULL);
+						core->block, b_len, name, mode, NULL, NULL);
 			}
 			free (name);
 		}
 	} else r_print_format (core->print, core->offset,
-			core->block, len, input+1, mode, NULL, NULL);
+			core->block, b_len, input+1, mode, NULL, NULL);
 	free (input);
 }
 
