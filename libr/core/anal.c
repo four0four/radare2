@@ -781,13 +781,13 @@ R_API int r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int dept
 	fcn->addr = at;
 	fcn->size = 0;
 	fcn->name = r_str_newf ("fcn.%08"PFMT64x, at);
-if (0) {
+#if 0
 	RFlagItem *item = r_flag_get_i (core->flags, at);
 	if (item) {
 		free (fcn->name);
 		fcn->name = strdup (item->name);
 	}
-}
+#endif
 	if (!(buf = malloc (ANALBS))) { //core->blocksize))) {
 		eprintf ("Error: malloc (buf)\n");
 		goto error;
@@ -855,7 +855,7 @@ if (0) {
 			(fcnlen == R_ANAL_RET_END && fcn->size < 1)) { /* Error analyzing function */
 			goto error;
 		} else if (fcnlen == R_ANAL_RET_END) { /* Function analysis complete */
-			RFlagItem *f = r_flag_get_i (core->flags, fcn->addr);
+			RFlagItem *f = r_flag_get_i2 (core->flags, fcn->addr);
 			free (fcn->name);
 			if (f) { /* Check if it's already flagged */
 				fcn->name = strdup (f->name);
@@ -2191,4 +2191,178 @@ R_API void r_core_anal_auto_merge (RCore *core, ut64 addr) {
 	r_list_foreach (core->anal->fcns, iter, f) {
 	}
 #endif
+}
+
+static RCore *mycore = NULL;
+
+// XXX: copypaste from anal/data.c
+#define MINLEN 1
+static int is_string (const ut8 *buf, int size, int *len) {
+	int i;
+	if (size<1)
+		return 0;
+	if (size>3 && buf[0] &&!buf[1]&&buf[2]&&!buf[3]) {
+		*len = 1; // XXX: TODO: Measure wide string length
+		return 2; // is wide
+	}
+	for (i=0; i<size; i++) {
+		if (!buf[i] && i>MINLEN) {
+			*len = i;
+			return 1;
+		}
+		if (buf[i]==10||buf[i]==13||buf[i]==9) {
+			continue;
+		}
+		if (buf[i]<32 || buf[i]>127) {
+			// not ascii text
+			return 0;
+		}
+		if (!IS_PRINTABLE (buf[i])) {
+			*len = i;
+			return 0;
+		}
+	}
+	*len = i;
+	return 1;
+}
+
+static int myvalid(ut64 addr) {
+	if (addr <0x100)
+		return 0;
+	if (addr == UT32_MAX || addr == UT64_MAX)
+		return 0;
+	return 1;
+}
+
+static int esilbreak_mem_write(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
+	/* do nothing */
+	return 1;
+}
+
+static int esilbreak_mem_read(RAnalEsil *esil, ut64 addr, ut8 *buf, int len) {
+	int slen = 0;
+	ut8 str[128];
+	char cmd[128];
+	if (myvalid (addr) && r_io_is_valid_offset (mycore->io, addr, 0)) {
+		ut32 refptr = 0;
+		r_io_read_at (mycore->io, addr, (ut8*)&refptr, sizeof (refptr));
+		if (myvalid (refptr) && r_io_is_valid_offset (mycore->io, (ut64)refptr, 0)) {
+			snprintf (cmd, sizeof (cmd), "axd 0x%"PFMT64x" 0x%"PFMT64x,
+				esil->offset, (ut64)refptr);
+			r_io_read_at (mycore->io, refptr, str, sizeof (str));
+			if (is_string (str, sizeof (str)-1, &slen)) {
+				char str2[128];
+				snprintf (str2, sizeof(str2)-1, "esilref: '%s'", str);
+				r_meta_set_string (mycore->anal, R_META_TYPE_COMMENT, esil->offset, str2);
+				r_meta_set_string (mycore->anal, R_META_TYPE_COMMENT, refptr, str2);
+			}
+		} else {
+			snprintf (cmd, sizeof (cmd), "axd 0x%"PFMT64x" 0x%"PFMT64x,
+				esil->offset, addr);
+		}
+		eprintf ("%s\n", cmd);
+		r_core_cmd0 (mycore, cmd);
+	}
+	return 0; // fallback
+}
+
+R_API void r_core_anal_esil (RCore *core, const char *str) {
+	RAnalEsil *ESIL = core->anal->esil;
+	const char *pcname;
+	RAnalOp op;
+	ut8 *buf = NULL;
+	int i, iend;
+	int minopsize = 4; // XXX this depends on asm->mininstrsize
+	ut64 addr = core->offset;
+	ut64 end = 0LL;
+	ut64 cur;
+
+	mycore = core;
+	if (!strcmp (str, "?")) {
+		eprintf ("Usage: aae[f] [len] - analyze refs in function, section or len bytes with esil\n");
+		return;
+	}
+	if (!strcmp (str, "f")) {
+		RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
+		if (fcn) {
+			addr = fcn->addr;
+			end = fcn->addr + fcn->size;
+		}
+	}
+	if (str[0] == ' ') {
+		end = addr + r_num_math (core->num, str+1);
+	} else {
+		RIOSection *sect = r_io_section_vget (core->io, addr);
+		if (sect) {
+			end = sect->vaddr + sect->size;
+		} else {
+			if (!end)
+				end = addr + core->blocksize;
+		}
+	}
+	iend = end - addr;
+	buf = malloc (iend+1);
+	r_io_read_at (core->io, addr, buf, iend+1);
+	if (!ESIL) {
+		r_core_cmd0 (core, "aei");
+		ESIL = core->anal->esil;
+		if (!ESIL) {
+			eprintf ("ESIL not initialized\n");
+			return;
+		}
+	}
+	ESIL->cb.hook_mem_read = &esilbreak_mem_read;
+	if (!core->io->cached) {
+		ESIL->cb.hook_mem_write = &esilbreak_mem_write;
+	}
+	eprintf ("Analyzing ESIL refs from 0x%"PFMT64x" - 0x%"PFMT64x"\n", addr, end);
+	// TODO: backup/restore register state before/after analysis
+	pcname = r_reg_get_name (core->anal->reg, R_REG_NAME_PC);
+	r_cons_break (NULL, NULL);
+	for (i=0; i<iend; i++) {
+		if (r_cons_is_breaked ()) {
+			break;
+		}
+		cur = addr + i;
+		if (r_anal_op (core->anal, &op, cur, buf+i, iend-i)) {
+#if 0
+			RAsmOp asmop;
+			r_asm_set_pc (core->assembler, cur);
+			if (r_asm_disassemble (core->assembler, &asmop, buf+i, iend-i)>0) {
+				op.mnemonic = strdup (asmop.buf_asm);
+				eprintf ("0x%08"PFMT64x"  %s\n", cur, op.mnemonic); //R_STRBUF_SAFEGET (&op.esil));
+			}
+#endif
+			if (op.size<1) {
+				i++;
+			} else {
+				const char *esilstr = R_STRBUF_SAFEGET (&op.esil);
+				r_anal_esil_set_offset (ESIL, cur);
+				(void)r_anal_esil_parse (ESIL, esilstr); 
+				//r_anal_esil_dumpstack (ESIL);
+				r_anal_esil_stack_free (ESIL);
+				i += op.size -1;
+				switch (op.type) {
+				case R_ANAL_OP_TYPE_UJMP:
+				case R_ANAL_OP_TYPE_UCALL:
+					{
+						if (pcname && *pcname) {
+							ut64 dst = r_reg_getv (core->anal->reg, pcname);
+							if (myvalid (dst) && r_io_is_valid_offset (mycore->io, dst, 0)) {
+								// get pc
+								eprintf ("0x%08"PFMT64x" UCALL 0x%08"PFMT64x"\n", cur, dst);
+								r_core_cmdf (core, "axc 0x%08"PFMT64x" 0x%"PFMT64x, cur, dst);
+							} else {
+								eprintf ("Unknown JMP/CALL at 0x%08"PFMT64x"\n", cur);
+							}
+						}
+					}
+					break;
+				}
+			}
+		} else {
+			i += minopsize - 1;
+		}
+	}
+	r_cons_break_end ();
 }

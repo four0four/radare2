@@ -2294,6 +2294,143 @@ static void cmd_anal_hint(RCore *core, const char *input) {
 	}
 }
 
+static void agraph_print_node (RANode *n) {
+	char *encbody, *cmd;
+	int len = strlen (n->body);
+
+	if (n->body[len - 1] == '\n') len--;
+	encbody = r_base64_encode_dyn (n->body, len);
+	cmd = r_str_newf ("agn \"%s\" base64:%s\n", n->title, encbody);
+	r_cons_printf (cmd);
+	free (cmd);
+	free (encbody);
+}
+
+static void agraph_print_edge (RANode *from, RANode *to) {
+	char *cmd;
+
+	cmd = r_str_newf ("age \"%s\" \"%s\"\n", from->title, to->title);
+	r_cons_printf (cmd);
+	free (cmd);
+}
+
+static void cmd_agraph_node (RCore *core, const char *input) {
+	const char *help_msg[] = {
+		"Usage:", "agn [title] [body]", "",
+		"Examples:", "", "",
+		"agn", " title1 body1", "Add a node with title \"title1\" and body \"body1\"",
+		"agn", " \"title with space\" \"body with space\"", "Add a node with spaces in the title and in the body",
+		"agn", " title1 base64:Ym9keTE=", "Add a node with the body specified as base64",
+		"agn?", "", "Show this help",
+		NULL};
+
+	switch (*input) {
+	case ' ':
+	{
+		char *newbody = NULL;
+		char **args, *body;
+		int n_args, B_LEN = strlen ("base64:");
+
+		input++;
+		args = r_str_argv (input, &n_args);
+		if (n_args != 2) {
+			r_cons_printf ("Wrong arguments\n");
+			r_str_argv_free (args);
+			break;
+		}
+		//strdup cause there is double free in r_str_argv_free due to a realloc call
+		body = strdup (args[1]);
+		if (strncmp (body, "base64:", B_LEN) == 0) {
+			body = r_str_replace (body, "\\n", "", R_TRUE);
+			newbody = (char *)r_base64_decode_dyn (body + B_LEN, 0);
+			free (body);
+			if (!newbody){
+				eprintf ("Not enough space to allocate %s at %d\n", __FILE__,__LINE__);
+				r_str_argv_free (args);
+				break;
+			}
+			body = newbody;
+		}
+		body = r_str_concat (body, "\n");
+		r_agraph_add_node (core->graph, args[0], body);
+		r_str_argv_free (args);
+		free (body);
+		//free newbody it's not necessary since r_str_concat reallocate the space
+		break;
+	}
+	case '?':
+	default:
+		r_core_cmd_help (core, help_msg);
+		break;
+	}
+}
+
+static void cmd_agraph_edge (RCore *core, const char *input) {
+	const char *help_msg[] = {
+		"Usage:", "age [title1] [title2]", "",
+		"Examples:", "", "",
+		"age", " title1 title2", "Add an edge from the node with \"title1\" as title to the one with title \"title2\"",
+		"age", " \"title1 with spaces\" title2", "Add an edge from node \"title1 with spaces\" to node \"title2\"",
+		"age?", "", "Show this help",
+		NULL};
+
+	switch (*input) {
+	case ' ':
+	{
+		RANode *u, *v;
+		char **args;
+		int n_args;
+
+		input++;
+		args = r_str_argv (input, &n_args);
+		if (n_args != 2) {
+			r_cons_printf("Wrong arguments\n");
+			r_str_argv_free (args);
+			break;
+		}
+
+		u = r_agraph_get_node (core->graph, args[0]);
+		v = r_agraph_get_node (core->graph, args[1]);
+		if (!u || !v) {
+			r_cons_printf ("Nodes not found!\n");
+			r_str_argv_free (args);
+			break;
+		}
+		r_agraph_add_edge (core->graph, u, v);
+		r_str_argv_free (args);
+		break;
+	}
+	case '?':
+	default:
+		r_core_cmd_help (core, help_msg);
+		break;
+	}
+}
+
+static void cmd_agraph_print (RCore *core, const char *input) {
+	switch (*input) {
+	case 'k':
+	{
+		Sdb *db = r_agraph_get_sdb (core->graph);
+		char *o = sdb_querys (db, "NULL", 0, "*");
+		r_cons_printf ("%s", o);
+		free (o);
+		break;
+	}
+	case '*':
+		r_agraph_foreach (core->graph, agraph_print_node);
+		r_agraph_foreach_edge (core->graph, agraph_print_edge);
+		break;
+	default:
+		core->graph->can->linemode = 1;
+		core->graph->can->color = r_config_get_i (core->config, "scr.color");
+		r_agraph_set_title (core->graph,
+				r_config_get (core->config, "graph.title"));
+		r_agraph_print (core->graph);
+		break;
+	}
+}
+
 static void cmd_anal_graph(RCore *core, const char *input) {
 	RList *list;
 	const char *arg;
@@ -2311,7 +2448,7 @@ static void cmd_anal_graph(RCore *core, const char *input) {
 		"ag-", "", "Reset the current ASCII art graph",
 		"agn", " title body", "Add a node to the current ASCII art graph",
 		"age", " title1 title2", "Add an edge to the current ASCII art graph",
-		"agg", "", "Print the current ASCII art graph",
+		"agg[k*]", "", "Print the current ASCII art graph",
 		"agv", "[acdltfl] [a]", "view function using graphviz",
 		NULL};
 
@@ -2323,61 +2460,13 @@ static void cmd_anal_graph(RCore *core, const char *input) {
 		r_agraph_reset (core->graph);
 		break;
 	case 'n':
-		input++;
-		if (*input == ' ') {
-			char *newbody = NULL;
-			char **args, *body;
-			int n_args, B_LEN = strlen ("base64:");
-
-			input++;
-			args = r_str_argv (input, &n_args);
-			if (n_args != 2) {
-				r_cons_printf ("Wrong arguments\n");
-				r_str_argv_free (args);
-				break;
-			}
-
-			body = args[1];
-			if (strncmp (body, "base64:", B_LEN) == 0) {
-				newbody = (char *)r_base64_decode_dyn (body + B_LEN, 0);
-				body = newbody;
-
-			}
-			r_agraph_add_node (core->graph, args[0], body);
-			r_str_argv_free (args);
-			free (newbody);
-		}
+		cmd_agraph_node (core, input + 1);
 		break;
 	case 'e':
-		input++;
-		if (*input == ' ') {
-			RANode *u, *v;
-			char **args;
-			int n_args;
-
-			input++;
-			args = r_str_argv (input, &n_args);
-			if (n_args != 2) {
-				r_cons_printf("Wrong arguments\n");
-				break;
-			}
-
-			u = r_agraph_get_node (core->graph, args[0]);
-			v = r_agraph_get_node (core->graph, args[1]);
-			if (!u || !v) {
-				r_cons_printf ("Nodes not found!\n");
-				break;
-			}
-			r_agraph_add_edge (core->graph, u, v);
-			r_str_argv_free (args);
-		}
+		cmd_agraph_edge (core, input + 1);
 		break;
 	case 'g':
-		core->graph->can->linemode = 1;
-		core->graph->can->color = r_config_get_i (core->config, "scr.color");
-		r_agraph_set_title (core->graph,
-				r_config_get (core->config, "graph.title"));
-		r_agraph_print (core->graph);
+		cmd_agraph_print (core, input + 1);
 		break;
 	case 't':
 		list = r_core_anal_graph_to (core, r_num_math (core->num, input+1), 0);
@@ -2611,6 +2700,7 @@ static int cmd_anal(void *data, const char *input) {
 		"aa*", "", "analyze all flags starting with sym. (af @@ sym.*)",
 		"aaa", "", "autoname functions after aa (see afna)",
 		"aac", " [len]", "analyze function calls (af @@ `pi len~call[1]`)",
+		"aae", " [len]", "analyze references with ESIL",
 		"aar", " [len]", "analyze len bytes of instructions for references",
 		"aas", " [len]", "analyze symbols (af @@= `isq~[0]`)",
 		"aap", "", "find and analyze function preludes",
@@ -2710,6 +2800,9 @@ static int cmd_anal(void *data, const char *input) {
 				r_core_cmd0 (core, "aar");
 				r_core_cmd0 (core, "aac");
 			}
+			break;
+		case 'e':
+			r_core_anal_esil (core, input+2);
 			break;
 		case 'r':
 			{

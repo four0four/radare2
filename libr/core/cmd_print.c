@@ -465,10 +465,6 @@ static void cmd_print_format (RCore *core, const char *_input, int len) {
 	core->print->get_register = r_reg_get;
 	core->print->get_register_value = r_reg_get_value;
 
-	/* This make sure the structure will be printed entirely */
-	int b_len = r_print_format_struct_size (input+2, core->print, 0)+10;
-	b_len = b_len>core->blocksize?b_len:core->blocksize;
-
 	if (listFormats) {
 		core->print->num = core->num;
 		/* print all stored format */
@@ -525,12 +521,12 @@ static void cmd_print_format (RCore *core, const char *_input, int len) {
 				}
 			} else {
 				r_print_format (core->print, core->offset,
-						core->block, b_len, name, mode, NULL, NULL);
+						core->block, core->blocksize, name, mode, NULL, NULL);
 			}
 			free (name);
 		}
 	} else r_print_format (core->print, core->offset,
-			core->block, b_len, input+1, mode, NULL, NULL);
+			core->block, core->blocksize, input+1, mode, NULL, NULL);
 	free (input);
 }
 
@@ -2853,11 +2849,8 @@ static int cmd_print(void *data, const char *input) {
 			if (input[2] == '?')
 				r_cons_printf ("|Usage: p6d [len]    base 64 decode\n");
 			else if (r_base64_decode (buf, (const char *)core->block, len))
-				r_cons_printf ("%s", buf);
+				r_cons_printf ("%s\n", buf);
 			else eprintf ("r_base64_decode: invalid stream\n");
-			break;
-		case '?':
-			r_cons_printf ("|Usage: p6[ed] [len]    base 64 encode/decode\n");
 			break;
 		case 'e':
 			if (input[2] == '?') {
@@ -2866,9 +2859,10 @@ static int cmd_print(void *data, const char *input) {
 			} else {
 				len = len > core->blocksize ? core->blocksize : len;
 				r_base64_encode ((char *)buf, core->block, len);
-				r_cons_printf ("%s", buf);
+				r_cons_printf ("%s\n", buf);
 			}
 			break;
+		case '?':
 		default:
 			r_cons_printf ("|Usage: p6[ed] [len]    base 64 encode/decode\n");
 			break;

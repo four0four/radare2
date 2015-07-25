@@ -588,11 +588,13 @@ static int dump_maps(RCore *core, int perm, const char *filename) {
 			//TODO: use mmap here. we need a portable implementation
 			if (!buf) {
 				eprintf ("Cannot allocate 0x%08"PFMT64x" bytes\n", map->size);
+				free (buf);
 				/// XXX: TODO: read by blocks!!1
 				continue;
 			}
 			if (map->size > MAX_MAP_SIZE) {
 				eprintf ("Do not dumping 0x%08"PFMT64x" because it's too big\n", map->addr);
+				free (buf);
 				continue;
 			}
 			r_io_read_at (core->io, map->addr, buf, map->size);
@@ -684,6 +686,7 @@ static int cmd_debug_map(RCore *core, const char *input) {
 			eprintf ("Usage: dmd[aw]  - dump (all-or-writable) debug maps\n");
 			break;
 		}
+		break;
 	case 'l':
 		if (input[1] != ' ') {
 			eprintf ("Usage: dml [file]\n");
