@@ -85,27 +85,27 @@ static void cmd_write_op (RCore *core, const char *input) {
 		r_core_block_read (core, 0);
 		break;
 	case 'D':
-    len = strtoul (input+2, &sequence_err, 0);
-    if (*sequence_err) {
-      printf ("Invalid length: %s\n", sequence_err);
-      break;
-    }
-		if (len > 0) {
-			buf = (ut8*)r_debruijn_pattern (len, 0, NULL); //debruijn_charset);
-			if (buf) {
-				r_core_write_at (core, core->offset, buf, len);
-				free (buf);
-			} else {
-				eprintf ("Couldn't generate pattern of length %d\n", len);
-			}
-		}
-		break;
+        len = strtoul (input+2, &sequence_err, 0);
+        if (*sequence_err) {
+          printf ("Invalid length: %s\n", sequence_err);
+          break;
+        }
+        if (len > 0) {
+          buf = (ut8*)r_debruijn_pattern (len, 0, NULL); //debruijn_charset);
+          if (buf) {
+              r_core_write_at (core, core->offset, buf, len);
+              free (buf);
+          } else {
+            eprintf ("Couldn't generate pattern of length %d\n", len);
+          }
+        }
+        break;
 	case 'O':
-    len = strtoul (input+2, &sequence_err, 16);
-    if (*sequence_err) {
-      printf ("Invalid sequence: %s\n", sequence_err);
-      break;
-    }
+        len = strtoul (input+2, &sequence_err, 16);
+        if (*sequence_err) {
+          eprintf ("Invalid sequence: %s\n", sequence_err);
+          break;
+        }
 		core->num->value = r_debruijn_offset (len, !core->assembler->big_endian);
 		r_cons_printf ("%d\n", core->num->value);
 		break;

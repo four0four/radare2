@@ -284,15 +284,15 @@ int main(int argc, char **argv) {
 	// catch this first
 	if (get_offset) {
 		get_offset = strtoul (sequence, &sequence_err, 16);
-    if (*sequence_err) {
-      printf ("Invalid sequence: %s\n", sequence_err);
-      return 1;
-    }
+        if (*sequence_err) {
+            printf ("Invalid sequence: %s\n", sequence_err);
+            return 1;
+        }
 		printf ("Little endian: %d\n",
 			r_debruijn_offset (get_offset, 1));
 		printf ("Big endian: %d\n",
 			r_debruijn_offset (get_offset, 0));
-    sequence_err = NULL;
+        sequence_err = NULL;
 		free (sequence);
 		return 0;
 	}
