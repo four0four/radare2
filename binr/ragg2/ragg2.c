@@ -402,8 +402,8 @@ int main(int argc, char **argv) {
         // get_offset is unused by this point
         get_offset = strtoul (pattern, &sequence_err, 0);
         if (*sequence_err) {
-          eprintf ("Invalid length: %s\n", sequence_err);
-          goto fail;
+            eprintf ("Invalid length: %s\n", sequence_err);
+            goto fail;
         }
 		r_egg_pattern (egg, get_offset);
     }
