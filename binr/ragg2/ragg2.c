@@ -110,6 +110,7 @@ int main(int argc, char **argv) {
 	char *shellcode = NULL;
 	char *encoder = NULL;
 	char *sequence = NULL;
+  char *sequence_err = NULL;
 	int bits = (R_SYS_BITS & R_SYS_BITS_64)? 64: 32;
 	int fmt = 0;
 	const char *ofile = NULL;
@@ -282,11 +283,16 @@ int main(int argc, char **argv) {
 
 	// catch this first
 	if (get_offset) {
-		get_offset = r_num_math (0, sequence);
+		get_offset = strtoul (sequence, &sequence_err, 16);
+    if (*sequence_err) {
+      printf ("Invalid sequence: %s\n", sequence_err);
+      return 1;
+    }
 		printf ("Little endian: %d\n",
 			r_debruijn_offset (get_offset, 1));
 		printf ("Big endian: %d\n",
 			r_debruijn_offset (get_offset, 0));
+    sequence_err = NULL;
 		free (sequence);
 		return 0;
 	}

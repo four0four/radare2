@@ -29,6 +29,7 @@ static void cmd_write_inc(RCore *core, int size, st64 num) {
 
 static void cmd_write_op (RCore *core, const char *input) {
 	ut8 *buf;
+  char *sequence_err = NULL;
 	int len;
 	const char* help_msg[] = {
 		"Usage:","wo[asmdxoArl24]"," [hexpairs] @ addr[!bsize]",
@@ -84,8 +85,11 @@ static void cmd_write_op (RCore *core, const char *input) {
 		r_core_block_read (core, 0);
 		break;
 	case 'D':
-		len = (int)(input[2]==' ')?
-			r_num_math (core->num, input + 2): core->blocksize;
+    len = strtoul (input+2, &sequence_err, 0);
+    if (*sequence_err) {
+      printf ("Invalid length: %s\n", sequence_err);
+      break;
+    }
 		if (len > 0) {
 			buf = (ut8*)r_debruijn_pattern (len, 0, NULL); //debruijn_charset);
 			if (buf) {
@@ -97,8 +101,11 @@ static void cmd_write_op (RCore *core, const char *input) {
 		}
 		break;
 	case 'O':
-		len = (int)(input[2]==' ')?
-			r_num_math (core->num, input + 2): core->blocksize;
+    len = strtoul (input+2, &sequence_err, 16);
+    if (*sequence_err) {
+      printf ("Invalid sequence: %s\n", sequence_err);
+      break;
+    }
 		core->num->value = r_debruijn_offset (len, !core->assembler->big_endian);
 		r_cons_printf ("%d\n", core->num->value);
 		break;
