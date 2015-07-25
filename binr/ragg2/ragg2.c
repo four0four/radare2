@@ -285,7 +285,7 @@ int main(int argc, char **argv) {
 	if (get_offset) {
 		get_offset = strtoul (sequence, &sequence_err, 16);
         if (*sequence_err) {
-            printf ("Invalid sequence: %s\n", sequence_err);
+            eprintf ("Invalid sequence: %s\n", sequence_err);
             return 1;
         }
 		printf ("Little endian: %d\n",
@@ -398,8 +398,15 @@ int main(int argc, char **argv) {
 		r_egg_padding (egg, padding);
 
 	// add pattern
-	if (pattern)
-		r_egg_pattern (egg, r_num_math (NULL, pattern));
+	if (pattern) {
+        // get_offset is unused by this point
+        get_offset = strtoul (pattern, &sequence_err, 0);
+        if (*sequence_err) {
+          eprintf ("Invalid length: %s\n", sequence_err);
+          goto fail;
+        }
+		r_egg_pattern (egg, get_offset);
+    }
 
 	// apply patches
 	if (!egg->bin) {
